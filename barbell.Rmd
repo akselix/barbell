@@ -1,14 +1,16 @@
 ---
-title: "Predicting Form in Weightlifting - A Coursera Practical Machine Learning Assignment"
+title: "Predicting Form in Weightlifting"
 author: "akselix"
-date: "12 Jun 2015"
-output: html_document
+date: "14 Jun 2015"
+output: 
+  html_document: 
+    theme: cosmo
 ---
 
 ## Background
-This project was part of Coursera course by Joh Hopskins University: [Practical Machine Learning](https://www.coursera.org/course/predmachlearn)
+This project was part of Coursera MOOC course by Johns Hopskins University: [Practical Machine Learning](https://www.coursera.org/course/predmachlearn)
 
-The data for this assignement was collected from on-body sensors and it is available along more information of their study from [Groupware@LES Human Activity Recognition Project](http://groupware.les.inf.puc-rio.br/har#weight_lifting_exercises)
+The data for this assignement was collected from on-body sensors and it is available along with more information on the research by Groupware@LES [Human Activity Recognition Project](http://groupware.les.inf.puc-rio.br/har#weight_lifting_exercises)
 
 Here is their brief description of the setting:
 
@@ -17,15 +19,80 @@ Six young health participants were asked to perform one set of 10 repetitions of
 ## Assignment
 The goal of your project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases. 
 
+## Initial Analysis
+The first part involved exploring different summaries of the data. Reading descriptions of the measurement gathering and feature building strategies from the original researcheres was very informative too. These steps have not been documented here to keep this presentation short.
 
+After initial analysis it was clear that many of the variables will not contribute to prediction accuracy and they can be dropped. Also I decided to use random forest model, since this is a basic classification problem with many variables and the outcomes are quite evenly distributed.
+
+## Loading Libraries and Reading in the Data 
+```{r, message= F}
+
+options(scipen =999)
+
+library(caret)
+library(randomForest)
+library(mlearning)
+library(knitr)
+
+rawTraining <- read.csv('pml-training.csv', stringsAsFactors = F, na.strings = "")
+rawTest <- read.csv('pml-testing.csv', stringsAsFactors = F, na.strings = "")
+```
+
+## Prepare Data For Analysis
+```{r}
+## Remove first 7 variables as they don't contain useful information for prediction
+training <- rawTraining[, -(1:7)]
+testing <- rawTest[, -(1:7)]
+
+# Most variables don't have any missing values, but some have over 97% of values missing. Let's remove those.
+training <- training[colSums(is.na(testing)) == 0]
+testing <- testing[colSums(is.na(testing)) == 0]
+
+## Remove variables with near zero variance
+nzv <- nearZeroVar(training)
+training <- training[-nzv]
+
+nzv <- nearZeroVar(testing)
+testing <- testing[-nzv]
+```
+
+## Model Building
+Random forest model seemed suitable from the get-go and it performed well. I tried it with different parameters and all got less than 1% error prediction for the OOB (Out-of-Bag) -error. In the end, the default parameters gave the best accuracy I could find: OOB = 0.47%.
 
 ```{r}
-summary(cars)
+## Set outcome variable "classe" to factor
+training$classe <- as.factor(training$classe)
+
+## Create data partitions
+set.seed(9875)
+
+trainIndex <- createDataPartition(training$classe, list = F, p = 0.7)
+train <- training[trainIndex, ]
+validation <- training[- trainIndex, ]
+
+## Train random forest model
+rfModel <- randomForest(classe ~ .,
+                        data = train,
+                        mtry = 7,
+                        ntree = 500,
+                        proximity = F)
+print(rfModel)
 ```
 
-You can also embed plots, for example:
+## Cross Validation and Out-of-Sample Error
+Even though it is not necessary to use a validation set to get an estimate of out-of sample-error with random forest's internal cross-validation features, we have a lot of data so the model was used on a separate validation set.
 
-```{r, echo=FALSE}
-plot(cars)
-```
+After applying the model to the validation set, we get an error rate of 0.5%. We can confidently use this model to predict the outcomes of the 20 cases in the actual test set.
 
+```{r, message= F}
+## Use the model to predict on the validation set and create a confusion matrix of the results
+rfPredict <- predict(rfModel, validation)
+predictConfusion <- confusion(validation$classe, rfPredict)
+
+## Compare model estimates and prediction results
+print(predictConfusion)
+
+confusionBarplot(predictConfusion, col = 'white', main = 'False Positives vs False Negatives')
+
+## Plot the top ten prediction variables based on MeanDecreaseGini
+varImpPlot(rfModel, n.var = 10, main = "Top 10 Variables by Relative Importance (MeanDecreaseGini)")
